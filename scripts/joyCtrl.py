@@ -1,4 +1,5 @@
 # control a crazyflies with joystick, record optitrack state and individual motor thrust
+# note, if optitrack is not available, the listner function may block indefinitely and refuse to exit, in such case, use kill or restart optitrack feed
 
 import logging
 import sys
@@ -6,6 +7,7 @@ import os
 from threading import Thread,Event,Lock
 from time import time,sleep
 sys.path.insert(0,'../externals/inputs/')
+# TODO remove this
 sys.path.insert(0,'/home/nickzhang/monocopter/optitrack_publisher')
 from pylistener import Listener
 
@@ -14,7 +16,6 @@ from cflib.crazyflie import Crazyflie
 from inputs import get_gamepad,UnpluggedError
 
 logging.basicConfig(level=logging.ERROR)
-# TODO exit gracefully at ctrl c
 
 class Command:
     roll = 0
@@ -70,8 +71,6 @@ class joyCtrl:
         self.init_joystick()
         self.init_optitrack_listener()
 
-        # TODO listen to optitrack in a separate thread
-
         print('Connecting to %s' % link_uri)
 
     def _connected(self, link_uri):
@@ -105,13 +104,15 @@ class joyCtrl:
         # since the message queue is not flushed before closing
         sleep(0.1)
         self._exit_flag.set()
-        # TODO join all threads
         self._cf.close_link()
-        return
+
+        self.write_log(sync=True)
+        for thread in self.started_thread:
+            thread.join()
+        exit(0)
 
     def init_optitrack_listener(self):
-        # TODO initialize a thread to update optitrack
-        # TODO register this thread in exit
+        # initialize a thread to update optitrack
         self.optitrack_state = None
         self.optitrack_listener = Listener()
         self.optitrack_listener_thread = Thread(name="optitrack",target=self._optitrack_listener)
@@ -120,7 +121,7 @@ class joyCtrl:
         return
 
     def _optitrack_listener(self):
-        # TODO handle exception
+        # handle exception
         # .x,.y,.z,.roll,.pitch,.yaw
         while (not self._exit_flag.is_set()):
             try:
@@ -132,7 +133,6 @@ class joyCtrl:
                 exit(0)
 
     def init_log(self):
-        # TODO log
         logFolder = "./log/"
         logPrefix = "richrun"
         logSuffix = ".txt"
@@ -152,7 +152,7 @@ class joyCtrl:
 
 
     def write_log(self,sync=False):
-        # TODO maintain log
+        # maintain log
         # TODO Lock?
         if not self.log_is_ready.is_set():
             return
@@ -176,7 +176,6 @@ class joyCtrl:
         pass
 
     def init_joystick(self):
-        # TODO add error handling
         self.gamepad_lock = Lock()
         self.gamepad = {}
         self.gamepad['ABS_Y'] = 0
@@ -211,8 +210,6 @@ class joyCtrl:
     def _update_joystick(self):
         while (not self._exit_flag.is_set()):
             try:
-                # TODO map input and send packet for setpoint
-                # TODO handle exception
                 try:
                     events = get_gamepad()
                 except UnpluggedError as e:
@@ -226,10 +223,14 @@ class joyCtrl:
                         self.gamepad_lock.release()
                         #print(event.code,event.state)
                 # map joystick value to roll/pitch/yaw/thrust
+                # TODO all values are in range (-1.0,1.0), map them to appropriate values
+                self.command_lock.acquire()
                 self.command.roll = self.joymap(self.gamepad['ABS_RX'])
                 self.command.pitch = self.joymap(self.gamepad['ABS_RY'])
                 self.command.yawrate = self.joymap(self.gamepad['ABS_X'])
                 self.command.thrust = self.joymap(self.gamepad['ABS_Y'])
+                self.command_lock.release()
+                # NOTE _main() will send command to crazyfly
             except (KeyboardInterrupt,SystemExit):
                 self._exit_flag.is_set()
                 exit(0)
