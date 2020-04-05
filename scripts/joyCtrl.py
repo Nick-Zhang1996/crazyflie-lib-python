@@ -33,6 +33,7 @@ class joyCtrl:
         self.init_joystick()
         self.init_optitrack_listener()
         self.reported_motor_thrust = (0,0,0,0)
+        self.reported_voltage = 0.0
         self.init_log()
 
     def stay(self):
@@ -62,6 +63,7 @@ class joyCtrl:
         self._cf.connection_failed.add_callback(self._connection_failed)
         self._cf.connection_lost.add_callback(self._connection_lost)
 
+        # register our callback function
         self._cf.add_port_callback(CRTPPort.MOTOR, self._incoming)
         self._cf.open_link(link_uri)
         self._cf.commander.send_setpoint(0, 0, 0, 0)
@@ -156,7 +158,7 @@ class joyCtrl:
         # TODO Lock?
         if not self.log_is_ready.is_set():
             return
-        logEntry = str(time())+","+str(self.optitrack_state.x)+","+str(self.optitrack_state.y)+","+str(self.optitrack_state.z)+","+str(self.optitrack_state.roll)+","+str(self.optitrack_state.pitch)+","+str(self.optitrack_state.yaw)+","+str(self.reported_motor_thrust[0])+","+str(self.reported_motor_thrust[1])+","+str(self.reported_motor_thrust[2])+","+str(self.reported_motor_thrust[3])+"\n"
+        logEntry = str(time())+","+str(self.optitrack_state.x)+","+str(self.optitrack_state.y)+","+str(self.optitrack_state.z)+","+str(self.optitrack_state.roll)+","+str(self.optitrack_state.pitch)+","+str(self.optitrack_state.yaw)+","+str(self.reported_motor_thrust[0])+","+str(self.reported_motor_thrust[1])+","+str(self.reported_motor_thrust[2])+","+str(self.reported_motor_thrust[3])+str(self.reported_voltage)+"\n"
         self.logBuffer.append(logEntry)
         print(logEntry)
         if (sync or len(self.logBuffer)>300):
@@ -169,7 +171,20 @@ class joyCtrl:
 
     def _incoming(self,packet):
         # TODO process incoming CRTP packet, (PORT=MOTOR), update local state
-        pass
+        # TODO verify this is correct
+        # channel 1: thrust command to execute, pc->crazyflie, for use with control
+        # channel 2: thrust report, crazyflie->pc, for logging
+        # package data field formatting:
+        # Byte 0-1 : thrust 0, uint16_t, this is the value sent to motorsSetRatio (ithrust), 65536->60grams
+        # 2-3: thrust 1
+        # 4-5: 2
+        # 6-7: 3
+        # Byte 8-11 : supply voltage, float, from pmGetBatteryVoltage()
+        # the actual equation to convert ithrust to PWM can be found in crazyflie-firmware/src/drivers/src/motors.c
+        if (packet.channel==2):
+            # NOTE < little endian, H: unsigned short 2Bytes, B: unsigned char 1 Byte, f: float 4 byte, all used in crtp protocol
+            self.reported_motor_thrust = struct.unpack('<HHHH', packet.data[:8])
+            self.reported_voltage =  struct.unpack('<f', packet.data[8:])
 
     def calibrate_joystick(self):
         # TODO add calibration
