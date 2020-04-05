@@ -11,7 +11,7 @@ from pylistener import Listener
 
 import cflib
 from cflib.crazyflie import Crazyflie
-from inputs import get_gamepad
+from inputs import get_gamepad,UnpluggedError
 
 logging.basicConfig(level=logging.ERROR)
 # TODO exit gracefully at ctrl c
@@ -40,7 +40,7 @@ class joyCtrl:
                 print(self.optitrack_state.x)
                 sleep(0.02)
         except (KeyboardInterrupt,SystemExit):
-            print("exit")
+            print("exiting... Please press Ctrl-C multiple times")
         finally:
             self._exit_flag.set()
             for thread in self.started_thread:
@@ -109,18 +109,23 @@ class joyCtrl:
         # TODO initialize a thread to update optitrack
         # TODO register this thread in exit
         self.optitrack_state = None
+        self.optitrack_listener = Listener()
         self.optitrack_listener_thread = Thread(name="optitrack",target=self._optitrack_listener)
         self.optitrack_listener_thread.start()
         self.started_thread.append(self.optitrack_listener_thread)
-        pass
+        return
 
     def _optitrack_listener(self):
         # TODO handle exception
         # .x,.y,.z,.roll,.pitch,.yaw
         while (not self._exit_flag.is_set()):
-            self.optitrack_state = listener.ReceivePackage()
-            #print(self.optitrack_state.x)
-            self.writeLog()
+            try:
+                self.optitrack_state = self.optitrack_listener.ReceivePackage()
+                #print(self.optitrack_state.x)
+                self.writeLog()
+            except (KeyboardInterrupt,SystemExit):
+                self._exit_flag.set()
+                exit(0)
 
     def writeLog(self):
         # TODO maintain log
@@ -146,6 +151,15 @@ class joyCtrl:
 
         self.command_lock = Lock()
         self.command = Command()
+
+        print("please press any button on gamepad to complete init")
+        try:
+            get_gamepad()
+        except UnpluggedError as e:
+            print("Gamepad Init Error: "+str(e))
+            self._exit_flag.set()
+            return
+
         self.joystick_update_thread = Thread(name="joystickUpdate",target=self._update_joystick)
         self.joystick_update_thread.start()
         self.started_thread.append(self.joystick_update_thread)
@@ -161,20 +175,29 @@ class joyCtrl:
 
     def _update_joystick(self):
         while (not self._exit_flag.is_set()):
-            # TODO map input and send packet for setpoint
-            # TODO handle exception
-            events = get_gamepad()
-            for event in events:
-                if (event.ev_type == 'Absolute'):
-                    self.gamepad_lock.acquire()
-                    self.gamepad[event.code] = event.state
-                    self.gamepad_lock.release()
-                    #print(event.code,event.state)
-            # map joystick value to roll/pitch/yaw/thrust
-            self.command.roll = self.joymap(self.gamepad['ABS_RX'])
-            self.command.pitch = self.joymap(self.gamepad['ABS_RY'])
-            self.command.yawrate = self.joymap(self.gamepad['ABS_X'])
-            self.command.thrust = self.joymap(self.gamepad['ABS_Y'])
+            try:
+                # TODO map input and send packet for setpoint
+                # TODO handle exception
+                try:
+                    events = get_gamepad()
+                except UnpluggedError as e:
+                    error(e)
+                    self._exit_flag.set()
+                    return
+                for event in events:
+                    if (event.ev_type == 'Absolute'):
+                        self.gamepad_lock.acquire()
+                        self.gamepad[event.code] = event.state
+                        self.gamepad_lock.release()
+                        #print(event.code,event.state)
+                # map joystick value to roll/pitch/yaw/thrust
+                self.command.roll = self.joymap(self.gamepad['ABS_RX'])
+                self.command.pitch = self.joymap(self.gamepad['ABS_RY'])
+                self.command.yawrate = self.joymap(self.gamepad['ABS_X'])
+                self.command.thrust = self.joymap(self.gamepad['ABS_Y'])
+            except (KeyboardInterrupt,SystemExit):
+                self._exit_flag.is_set()
+                exit(0)
         return
 
     def _main(self):
