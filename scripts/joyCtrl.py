@@ -1,8 +1,8 @@
 # control a crazyflies with joystick, record optitrack state and individual motor thrust
 
 import logging
-import time
 import sys
+import os
 from threading import Thread,Event,Lock
 from time import time,sleep
 sys.path.insert(0,'../externals/inputs/')
@@ -31,7 +31,7 @@ class joyCtrl:
         self.log_is_ready = Event()
         self.init_joystick()
         self.init_optitrack_listener()
-        self.motor = (0,0,0,0)
+        self.reported_motor_thrust = (0,0,0,0)
         self.init_log()
 
     def stay(self):
@@ -39,12 +39,13 @@ class joyCtrl:
         try:
             while (not self._exit_flag.is_set()):
                 #print(self.command.roll,self.command.pitch,self.command.yawrate,self.command.thrust)
-                print('.')
-                print(self.optitrack_state.x)
+                #print('.')
+                #print(self.optitrack_state.x)
                 sleep(0.02)
         except (KeyboardInterrupt,SystemExit):
             print("exiting... Please press Ctrl-C multiple times")
         finally:
+            self.write_log(sync=True)
             self._exit_flag.set()
             for thread in self.started_thread:
                 thread.join()
@@ -102,7 +103,7 @@ class joyCtrl:
         self._cf.commander.send_setpoint(0, 0, 0, 0)
         # Make sure that the last packet leaves before the link is closed
         # since the message queue is not flushed before closing
-        time.sleep(0.1)
+        sleep(0.1)
         self._exit_flag.set()
         # TODO join all threads
         self._cf.close_link()
@@ -125,7 +126,7 @@ class joyCtrl:
             try:
                 self.optitrack_state = self.optitrack_listener.ReceivePackage()
                 #print(self.optitrack_state.x)
-                self.writeLog()
+                self.write_log()
             except (KeyboardInterrupt,SystemExit):
                 self._exit_flag.set()
                 exit(0)
@@ -145,15 +146,19 @@ class joyCtrl:
             no += 1
         self.logFilename = logFolder+logPrefix+str(no)+logSuffix
         print("log writing to: "+self.logFilename)
-        self.log_is_ready.set()
         sleep(1)
+        self.log_is_ready.set()
 
-    def writeLog(self,sync=False):
+
+
+    def write_log(self,sync=False):
         # TODO maintain log
         # TODO Lock?
-        if not self.log_is_ready.is_set()
+        if not self.log_is_ready.is_set():
             return
-        logEntry = str(time)+","+str(self.optitrack_state.x)+","+str(self.optitrack_state.y)+","+str(self.optitrack_state.z)+","+str(self.optitrack_state.roll)+","+str(self.optitrack_state.pitch)+","+str(self.optitrack_state.yaw)+","+str(self.reported+motor_thrust[0])+","+str(self.reported+motor_thrust[1])+","+str(self.reported+motor_thrust[2])+","+str(self.reported+motor_thrust[3])
+        logEntry = str(time())+","+str(self.optitrack_state.x)+","+str(self.optitrack_state.y)+","+str(self.optitrack_state.z)+","+str(self.optitrack_state.roll)+","+str(self.optitrack_state.pitch)+","+str(self.optitrack_state.yaw)+","+str(self.reported_motor_thrust[0])+","+str(self.reported_motor_thrust[1])+","+str(self.reported_motor_thrust[2])+","+str(self.reported_motor_thrust[3])+"\n"
+        self.logBuffer.append(logEntry)
+        print(logEntry)
         if (sync or len(self.logBuffer)>300):
             with open(self.logFilename, 'a') as filehandle:
                 for entry in self.logBuffer:
