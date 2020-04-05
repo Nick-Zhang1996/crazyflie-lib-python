@@ -28,8 +28,11 @@ class joyCtrl:
         # FIXME for debugging only, not the real entry point
         self.started_thread = []
         self._exit_flag = Event()
+        self.log_is_ready = Event()
         self.init_joystick()
         self.init_optitrack_listener()
+        self.motor = (0,0,0,0)
+        self.init_log()
 
     def stay(self):
         # stays awake and wait for ctrl-C
@@ -127,9 +130,36 @@ class joyCtrl:
                 self._exit_flag.set()
                 exit(0)
 
-    def writeLog(self):
+    def init_log(self):
+        # TODO log
+        logFolder = "./log/"
+        logPrefix = "richrun"
+        logSuffix = ".txt"
+        if (not os.path.isdir(logFolder)):
+            print("log folder does not exist, creating one")
+            os.makedirs(logFolder)
+
+        no = 1
+        self.logBuffer = []
+        while os.path.isfile(logFolder+logPrefix+str(no)+logSuffix):
+            no += 1
+        self.logFilename = logFolder+logPrefix+str(no)+logSuffix
+        print("log writing to: "+self.logFilename)
+        self.log_is_ready.set()
+        sleep(1)
+
+    def writeLog(self,sync=False):
         # TODO maintain log
-        pass
+        # TODO Lock?
+        if not self.log_is_ready.is_set()
+            return
+        logEntry = str(time)+","+str(self.optitrack_state.x)+","+str(self.optitrack_state.y)+","+str(self.optitrack_state.z)+","+str(self.optitrack_state.roll)+","+str(self.optitrack_state.pitch)+","+str(self.optitrack_state.yaw)+","+str(self.reported+motor_thrust[0])+","+str(self.reported+motor_thrust[1])+","+str(self.reported+motor_thrust[2])+","+str(self.reported+motor_thrust[3])
+        if (sync or len(self.logBuffer)>300):
+            with open(self.logFilename, 'a') as filehandle:
+                for entry in self.logBuffer:
+                    filehandle.write('%s' % entry)
+            self.logBuffer = []
+        return
 
 
     def _incoming(self,packet):
