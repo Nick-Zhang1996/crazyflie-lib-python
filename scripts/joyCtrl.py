@@ -29,6 +29,7 @@ class joyCtrl:
         self.started_thread = []
         self._exit_flag = Event()
         self.init_joystick()
+        self.init_optitrack_listener()
 
     def stay(self):
         # stays awake and wait for ctrl-C
@@ -57,11 +58,14 @@ class joyCtrl:
         self._cf.connection_lost.add_callback(self._connection_lost)
 
         self._cf.add_port_callback(CRTPPort.MOTOR, self._incoming)
+        self._cf.open_link(link_uri)
+        self._cf.commander.send_setpoint(0, 0, 0, 0)
 
+        self.started_thread = []
         self._exit_flag = Event()
         self.init_joystick()
+        self.init_optitrack_listener()
 
-        self._cf.open_link(link_uri)
         # TODO listen to optitrack in a separate thread
 
         print('Connecting to %s' % link_uri)
@@ -72,7 +76,7 @@ class joyCtrl:
 
         # Start a separate thread to do the motor test.
         # Do not hijack the calling thread!
-        Thread(target=self._ramp_motors).start()
+        # Thread(target=self._ramp_motors).start()
 
     def _connection_failed(self, link_uri, msg):
         """Callback when connection initial connection fails (i.e no Crazyflie
@@ -115,7 +119,8 @@ class joyCtrl:
         # .x,.y,.z,.roll,.pitch,.yaw
         while (not self._exit_flag.is_set()):
             self.optitrack_state = listener.ReceivePackage()
-            print(self.optitrack_state.x)
+            #print(self.optitrack_state.x)
+            self.writeLog()
 
     def writeLog(self):
         # TODO maintain log
@@ -123,7 +128,7 @@ class joyCtrl:
 
 
     def _incoming(self,packet):
-        # TODO process incoming CRTP packet, update local state
+        # TODO process incoming CRTP packet, (PORT=MOTOR), update local state
         pass
 
     def calibrate_joystick(self):
@@ -185,32 +190,7 @@ class joyCtrl:
             # keep update frequency at 100Hz, as recommended by crazyfiles
             sleep(0.01)
 
-
-    def _ramp_motors(self):
-        # FIXME delete me, this is for reference only
-        thrust_mult = 1
-        thrust_step = 500
-        thrust = 20000
-        pitch = 0
-        roll = 0
-        yawrate = 0
-
-        # Unlock startup thrust protection
-        self._cf.commander.send_setpoint(0, 0, 0, 0)
-
-        while thrust >= 20000:
-            self._cf.commander.send_setpoint(roll, pitch, yawrate, thrust)
-            time.sleep(0.1)
-            if thrust >= 25000:
-                thrust_mult = -1
-            thrust += thrust_step * thrust_mult
-        self._cf.commander.send_setpoint(0, 0, 0, 0)
-        # Make sure that the last packet leaves before the link is closed
-        # since the message queue is not flushed before closing
-        time.sleep(0.1)
-        self._cf.close_link()
-
-
+# main entry point
 if __name__ == '__realmain__':
     # Initialize the low-level drivers (don't list the debug drivers)
     cflib.crtp.init_drivers(enable_debug_driver=False)
@@ -222,11 +202,12 @@ if __name__ == '__realmain__':
         print(i[0])
 
     if len(available) > 0:
-        le = MotorRampExample(available[0][0])
+        le = joyCtrl(available[0][0])
     else:
         print('No Crazyflies found, cannot run example')
 
 
+# FIXME For Debug
 if __name__ == '__main__':
     jc = joyCtrl()
     jc.stay()
